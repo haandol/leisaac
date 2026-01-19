@@ -25,6 +25,7 @@ parser.add_argument(
         "keyboard",
         "gamepad",
         "so101leader",
+        "so101remote",
         "bi-so101leader",
         "lekiwi-keyboard",
         "lekiwi-gamepad",
@@ -46,6 +47,18 @@ parser.add_argument(
     type=str,
     default="/dev/ttyACM1",
     help="Port for the right teleop device:bi-so101leader, default is /dev/ttyACM1",
+)
+parser.add_argument(
+    "--zmq_bind",
+    type=str,
+    default="tcp://*:5555",
+    help="ZMQ bind address for so101remote device, default is tcp://*:5555",
+)
+parser.add_argument(
+    "--zmq_topic",
+    type=str,
+    default="so101",
+    help="ZMQ topic for so101remote device, default is so101",
 )
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument("--seed", type=int, default=None, help="Seed for the environment.")
@@ -165,8 +178,9 @@ def main():  # noqa: C901
     if is_direct_env:
         assert args_cli.teleop_device in [
             "so101leader",
+            "so101remote",
             "bi-so101leader",
-        ], "only support so101leader or bi-so101leader for direct task"
+        ], "only support so101leader, so101remote or bi-so101leader for direct task"
 
     # timeout and terminate preprocess
     if is_direct_env:
@@ -225,6 +239,10 @@ def main():  # noqa: C901
         from leisaac.devices import SO101Leader
 
         teleop_interface = SO101Leader(env, port=args_cli.port, recalibrate=args_cli.recalibrate)
+    elif args_cli.teleop_device == "so101remote":
+        from leisaac.devices import SO101RemoteLeader
+
+        teleop_interface = SO101RemoteLeader(env, bind_addr=args_cli.zmq_bind, topic=args_cli.zmq_topic)
     elif args_cli.teleop_device == "bi-so101leader":
         from leisaac.devices import BiSO101Leader
 
@@ -246,7 +264,7 @@ def main():  # noqa: C901
     else:
         raise ValueError(
             f"Invalid device interface '{args_cli.teleop_device}'. Supported: 'keyboard', 'gamepad', 'so101leader',"
-            " 'bi-so101leader', 'lekiwi-keyboard', 'lekiwi-leader', 'lekiwi-gamepad'."
+            " 'so101remote', 'bi-so101leader', 'lekiwi-keyboard', 'lekiwi-leader', 'lekiwi-gamepad'."
         )
 
     # add teleoperation key for env reset
