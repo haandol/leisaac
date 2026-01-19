@@ -43,6 +43,13 @@ class SO101RemoteLeader(Device):
             f"\tWaiting for Mac sender to connect...\n"
         )
 
+    def _add_device_control_description(self):
+        self._display_controls_table.add_row(["so101-remote", "receive joint positions from remote Mac via ZMQ"])
+        self._display_controls_table.add_row([
+            "[TIPS]",
+            f"Run sender.py on Mac with --connect tcp://<EC2_IP>:5555",
+        ])
+
     def _start_receiver(self):
         """Start background thread to receive ZMQ messages."""
         self._ctx = zmq.Context.instance()
