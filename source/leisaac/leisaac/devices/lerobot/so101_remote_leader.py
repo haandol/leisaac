@@ -24,7 +24,7 @@ class SO101RemoteLeader(Device):
         topic: str = "so101",
         timeout_ms: int = 1000,
     ):
-        super().__init__(env, "so101leader")  # same device_type as local leader
+        super().__init__(env, "so101_leader")  # same device_type as local leader
         self.bind_addr = bind_addr
         self.topic = topic
         self.timeout_ms = timeout_ms
