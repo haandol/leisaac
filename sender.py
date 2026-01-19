@@ -11,6 +11,8 @@ Run:
 """
 
 import argparse
+import json
+import os
 import time
 import msgpack
 import zmq
@@ -20,9 +22,61 @@ PROTOCOL_END = 0
 BAUDRATE = 1000000
 ADDR_PRESENT_POSITION = 56  # STS3215 present position address
 LEN_PRESENT_POSITION = 2
+RESOLUTION = 4096  # STS3215 encoder resolution
 
 MOTOR_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
 MOTOR_IDS = [1, 2, 3, 4, 5, 6]
+
+# Normalization modes matching LeIsaac
+NORM_MODE_RANGE_M100_100 = "RANGE_M100_100"  # -100 to 100 degrees
+NORM_MODE_RANGE_0_100 = "RANGE_0_100"  # 0 to 100 degrees
+
+MOTOR_NORM_MODES = {
+    "shoulder_pan": NORM_MODE_RANGE_M100_100,
+    "shoulder_lift": NORM_MODE_RANGE_M100_100,
+    "elbow_flex": NORM_MODE_RANGE_M100_100,
+    "wrist_flex": NORM_MODE_RANGE_M100_100,
+    "wrist_roll": NORM_MODE_RANGE_M100_100,
+    "gripper": NORM_MODE_RANGE_0_100,
+}
+
+
+def load_calibration(calibration_path: str) -> dict:
+    """Load calibration from JSON file."""
+    with open(calibration_path) as f:
+        return json.load(f)
+
+
+def raw_to_degree(raw_value: int, motor_name: str, calibration: dict) -> float:
+    """Convert raw encoder value to degrees using calibration."""
+    cal = calibration[motor_name]
+    homing_offset = cal["homing_offset"]
+    range_min = cal["range_min"]
+    range_max = cal["range_max"]
+
+    # Apply homing offset
+    pos = raw_value - homing_offset
+    if pos < 0:
+        pos += RESOLUTION
+
+    # Normalize to range
+    norm_mode = MOTOR_NORM_MODES[motor_name]
+    if norm_mode == NORM_MODE_RANGE_M100_100:
+        # Map to -100 to 100 degrees
+        range_span = range_max - range_min
+        if range_span == 0:
+            return 0.0
+        normalized = (pos - range_min) / range_span
+        degree = (normalized * 200.0) - 100.0
+    else:  # RANGE_0_100
+        # Map to 0 to 100 degrees
+        range_span = range_max - range_min
+        if range_span == 0:
+            return 0.0
+        normalized = (pos - range_min) / range_span
+        degree = normalized * 100.0
+
+    return degree
 
 
 def create_bus(port: str):
@@ -48,7 +102,7 @@ def create_bus(port: str):
     return port_handler, packet_handler, sync_read
 
 
-def read_positions(sync_read, packet_handler) -> dict[str, float]:
+def read_positions(sync_read, packet_handler, calibration: dict | None) -> dict[str, float]:
     """Read all motor positions via sync read."""
     result = sync_read.txRxPacket()
     if result != 0:
@@ -59,8 +113,10 @@ def read_positions(sync_read, packet_handler) -> dict[str, float]:
     for name, mid in zip(MOTOR_NAMES, MOTOR_IDS):
         if sync_read.isAvailable(mid, ADDR_PRESENT_POSITION, LEN_PRESENT_POSITION):
             raw = sync_read.getData(mid, ADDR_PRESENT_POSITION, LEN_PRESENT_POSITION)
-            # Convert to signed if needed (STS3215 uses 0-4095 range)
-            positions[f"{name}.pos"] = float(raw)
+            if calibration:
+                positions[f"{name}.pos"] = raw_to_degree(raw, name, calibration)
+            else:
+                positions[f"{name}.pos"] = float(raw)
         else:
             positions[f"{name}.pos"] = 0.0
     return positions
@@ -73,7 +129,19 @@ def main():
     ap.add_argument("--topic", default="so101", help="PUB topic")
     ap.add_argument("--hz", type=float, default=100.0, help="Publish rate")
     ap.add_argument("--print_every", type=int, default=50, help="Print every N messages")
+    ap.add_argument("--calibration", default=None, help="Path to calibration JSON file (so101_leader.json)")
     args = ap.parse_args()
+
+    # Load calibration if provided
+    calibration = None
+    if args.calibration:
+        if os.path.exists(args.calibration):
+            calibration = load_calibration(args.calibration)
+            print(f"[MAC] Loaded calibration from {args.calibration}")
+        else:
+            print(f"[WARN] Calibration file not found: {args.calibration}, using raw values")
+    else:
+        print("[WARN] No calibration file provided (--calibration), using raw encoder values")
 
     print(f"[MAC] Opening port {args.port}...")
     port_handler, packet_handler, sync_read = create_bus(args.port)
@@ -92,14 +160,14 @@ def main():
     try:
         while True:
             t0 = time.time()
-            raw_action = read_positions(sync_read, packet_handler)
+            raw_action = read_positions(sync_read, packet_handler, calibration)
 
             payload = {"seq": seq, "ts": t0, "raw_action": raw_action}
             packed = msgpack.packb(payload, use_bin_type=True)
             sock.send_multipart([args.topic.encode("utf-8"), packed])
 
             if seq % args.print_every == 0:
-                vals = [f"{v:.0f}" for v in raw_action.values()]
+                vals = [f"{v:.1f}" for v in raw_action.values()]
                 print(f"[MAC] seq={seq} pos=[{', '.join(vals)}]")
 
             seq += 1

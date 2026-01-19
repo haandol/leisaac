@@ -67,6 +67,7 @@ class SO101RemoteLeader(Device):
 
     def _recv_loop(self):
         """Background loop to receive and parse messages."""
+        recv_count = 0
         while self._running:
             try:
                 if self._sock.poll(100):  # 100ms poll
@@ -81,6 +82,12 @@ class SO101RemoteLeader(Device):
                             if motor_name in self._latest_state:
                                 self._latest_state[motor_name] = val
                         self._last_recv_time = time.time()
+
+                    recv_count += 1
+                    if recv_count == 1:
+                        print(f"[EC2] First message received! raw_action keys: {list(raw_action.keys())}")
+                    if recv_count % 100 == 0:
+                        print(f"[EC2] Received {recv_count} messages, latest state: {self._latest_state}")
             except Exception as e:
                 print(f"[EC2] ZMQ recv error: {e}")
 
