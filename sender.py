@@ -25,7 +25,8 @@ LEN_PRESENT_POSITION = 2
 RESOLUTION = 4096  # STS3215 encoder resolution
 
 MOTOR_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
-MOTOR_IDS = [1, 2, 3, 4, 5, 6]
+# Note: Physical motor IDs - swap 3 and 4 if elbow_flex and wrist_flex are swapped on hardware
+MOTOR_IDS = [1, 2, 4, 3, 5, 6]
 
 # Normalization modes matching LeIsaac
 NORM_MODE_RANGE_M100_100 = "RANGE_M100_100"  # -100 to 100 degrees
