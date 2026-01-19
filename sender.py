@@ -48,35 +48,29 @@ def load_calibration(calibration_path: str) -> dict:
 
 
 def raw_to_degree(raw_value: int, motor_name: str, calibration: dict) -> float:
-    """Convert raw encoder value to degrees using calibration."""
+    """Convert raw encoder value to degrees using calibration.
+    
+    Matches LeIsaac's motors_bus.py _normalize() logic exactly.
+    """
     cal = calibration[motor_name]
-    homing_offset = cal["homing_offset"]
     range_min = cal["range_min"]
     range_max = cal["range_max"]
 
-    # Apply homing offset
-    pos = raw_value - homing_offset
-    if pos < 0:
-        pos += RESOLUTION
+    if range_max == range_min:
+        return 0.0
 
-    # Normalize to range
+    # Bound value to calibration range (same as LeIsaac)
+    bounded_val = min(range_max, max(range_min, raw_value))
+    
     norm_mode = MOTOR_NORM_MODES[motor_name]
     if norm_mode == NORM_MODE_RANGE_M100_100:
-        # Map to -100 to 100 degrees
-        range_span = range_max - range_min
-        if range_span == 0:
-            return 0.0
-        normalized = (pos - range_min) / range_span
-        degree = (normalized * 200.0) - 100.0
+        # Map to -100 to 100
+        norm = (((bounded_val - range_min) / (range_max - range_min)) * 200) - 100
+        return norm
     else:  # RANGE_0_100
-        # Map to 0 to 100 degrees
-        range_span = range_max - range_min
-        if range_span == 0:
-            return 0.0
-        normalized = (pos - range_min) / range_span
-        degree = normalized * 100.0
-
-    return degree
+        # Map to 0 to 100
+        norm = ((bounded_val - range_min) / (range_max - range_min)) * 100
+        return norm
 
 
 def create_bus(port: str):

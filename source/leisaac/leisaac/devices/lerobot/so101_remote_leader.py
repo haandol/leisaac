@@ -54,8 +54,8 @@ class SO101RemoteLeader(Device):
         """Start background thread to receive ZMQ messages."""
         self._ctx = zmq.Context.instance()
         self._sock = self._ctx.socket(zmq.SUB)
-        self._sock.setsockopt(zmq.RCVHWM, 1)
-        self._sock.setsockopt(zmq.CONFLATE, 1)  # keep only latest message
+        self._sock.setsockopt(zmq.RCVHWM, 10)
+        self._sock.setsockopt(zmq.RCVTIMEO, 100)  # 100ms timeout instead of CONFLATE
         self._sock.bind(self.bind_addr)
         self._sock.subscribe(self.topic.encode("utf-8"))
 
@@ -70,24 +70,26 @@ class SO101RemoteLeader(Device):
         recv_count = 0
         while self._running:
             try:
-                if self._sock.poll(100):  # 100ms poll
-                    topic, packed = self._sock.recv_multipart()
-                    payload = msgpack.unpackb(packed, raw=False)
-                    raw_action = payload.get("raw_action", {})
+                topic, packed = self._sock.recv_multipart()
+                payload = msgpack.unpackb(packed, raw=False)
+                raw_action = payload.get("raw_action", {})
 
-                    with self._lock:
-                        for key, val in raw_action.items():
-                            # key format: "shoulder_pan.pos" -> "shoulder_pan"
-                            motor_name = key.replace(".pos", "")
-                            if motor_name in self._latest_state:
-                                self._latest_state[motor_name] = val
-                        self._last_recv_time = time.time()
+                with self._lock:
+                    for key, val in raw_action.items():
+                        # key format: "shoulder_pan.pos" -> "shoulder_pan"
+                        motor_name = key.replace(".pos", "")
+                        if motor_name in self._latest_state:
+                            self._latest_state[motor_name] = val
+                    self._last_recv_time = time.time()
 
-                    recv_count += 1
-                    if recv_count == 1:
-                        print(f"[EC2] First message received! raw_action keys: {list(raw_action.keys())}")
-                    if recv_count % 100 == 0:
-                        print(f"[EC2] Received {recv_count} messages, latest state: {self._latest_state}")
+                recv_count += 1
+                if recv_count == 1:
+                    print(f"[EC2] First message received! raw_action keys: {list(raw_action.keys())}")
+                if recv_count % 100 == 0:
+                    print(f"[EC2] Received {recv_count} messages, latest state: {self._latest_state}")
+            except zmq.Again:
+                # Timeout, no message available
+                pass
             except Exception as e:
                 print(f"[EC2] ZMQ recv error: {e}")
 
